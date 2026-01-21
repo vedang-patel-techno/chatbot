@@ -12,10 +12,60 @@ MAX_CONTEXT_CHARS = 3500
 MAX_COMPLETION_TOKENS = 300
 
 # =====================================================
+# SYNONYM DICTIONARY FOR QUERY EXPANSION
+# =====================================================
+SYNONYM_GROUPS = {
+    # Contact information
+    "phone": ["phone", "telephone", "mobile", "contact number", "phone number", "cell", "call"],
+    "email": ["email", "e-mail", "mail", "email address"],
+    "address": ["address", "location", "office", "office address", "place", "where"],
+    "contact": ["contact", "reach", "get in touch", "phone", "email"],
+    
+    # Time related
+    "hours": ["hours", "timing", "time", "schedule", "open", "close", "working hours"],
+    "appointment": ["appointment", "booking", "schedule", "reservation"],
+    
+    # Common queries
+    "cost": ["cost", "price", "fee", "charge", "rate", "pricing"],
+    "service": ["service", "services", "offering", "offerings", "provide"],
+    "doctor": ["doctor", "physician", "dr", "specialist"],
+    
+    # General
+    "website": ["website", "site", "web", "online", "url"],
+}
+
+def expand_query(question):
+    """
+    Expand the query with synonyms to improve retrieval.
+    
+    Args:
+        question: The original user question
+        
+    Returns:
+        Expanded query string with synonyms added
+    """
+    question_lower = question.lower()
+    expanded_terms = [question]  # Always include original query
+    
+    # Check each synonym group
+    for base_term, synonyms in SYNONYM_GROUPS.items():
+        # If any synonym is in the question, add all related terms
+        for synonym in synonyms:
+            if synonym in question_lower:
+                # Add other synonyms from this group
+                expanded_terms.extend([s for s in synonyms if s not in question_lower])
+                break  # Only add once per group
+    
+    # Join all terms together
+    return " ".join(expanded_terms)
+
+# =====================================================
 # RETRIEVAL
 # =====================================================
 def retrieve_context(question, tenant_id):
-    query_embedding = EMBEDDER.encode(question).tolist()
+    # Expand query with synonyms for better matching
+    expanded_question = expand_query(question)
+    query_embedding = EMBEDDER.encode(expanded_question).tolist()
 
     conn = get_db_connection()
     cur = conn.cursor()
