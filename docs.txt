@@ -1,0 +1,6 @@
+Authentication uses JWT tokens.
+Users log in to receive an access token.
+Access tokens expire after 24 hours.
+Refresh tokens generate new access tokens.
+
+

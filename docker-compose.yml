@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  web:
+    container_name: blog_web
+    build: .
+    ports:
+      - "8081:8000"
+    depends_on:
+      - db
+    networks:
+        - web
+  db:
+    container_name: blog_db
+    image: postgres:13
+    environment:
+      POSTGRES_USER: vedang
+      POSTGRES_PASSWORD: vedang123
+      POSTGRES_DB: Post_test3
+    ports:
+      - "5432:5432"
+    networks:
+        - web
+
+networks:
+    web:
+      driver: bridge

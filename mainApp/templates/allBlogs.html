@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>All Blogs</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f9f9f9; }
+        h1 { color: #333; }
+        .blogs-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        .blog {
+            border: 1px solid #ddd;
+            padding: 15px;
+            background-color: #fff;
+            border-radius: 5px;
+            flex: 1 1 calc(50% - 20px); /* 2 per row */
+            box-sizing: border-box;
+        }
+        .add-blog {
+            margin-top: 30px;
+        }
+        textarea { width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 5px; }
+        button {
+            padding: 10px 20px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover { background-color: #218838; }
+        p.no-blogs { font-style: italic; color: #666; }
+        .profile-button {
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>All Blogs</h1>
+
+    <!-- Profile button -->
+    <div class="profile-button">
+        <form action="/profile/" method="get">
+            <button type="submit">My Profile</button>
+        </form>
+    </div>
+
+    <!-- Display blogs -->
+    <div class="blogs-container">
+        {% if data and data|length > 0 %}
+            {% for blog in data %}
+                <div class="blog">
+                    <p>{{ blog.blog }}</p>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p class="no-blogs">No blogs found.</p>
+        {% endif %}
+    </div>
+
+    <!-- Add blog form -->
+    <div class="add-blog">
+        <h2>Add a Blog</h2>
+        <form method="POST" action="{% url 'addblog' %}">
+            {% csrf_token %}
+            <textarea name="blog" placeholder="Write your blog here..." required></textarea>
+            <button type="submit">Add Blog</button>
+        </form>
+    </div>
+</body>
+</html>

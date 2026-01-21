@@ -1,0 +1,27 @@
+Django==5.2.1
+djangorestframework==3.16.1
+
+# Database
+psycopg2-binary==2.9.9
+
+# Environment variables
+django-environ==0.12.0
+
+# CORS (frontend → backend)
+django-cors-headers==4.7.0
+
+# Filtering, pagination
+django-filter==25.1
+
+# Caching / Redis (optional but common)
+django-redis==6.0.0
+redis==6.1.0
+
+# API documentation (optional but useful)
+drf-spectacular==0.28.0
+
+# Production server
+gunicorn==23.0.0
+
+# Utilities
+python-dateutil==2.9.0.post0
