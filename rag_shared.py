@@ -25,8 +25,7 @@ DB_CONFIG = {
 # =====================================================
 # GLOBALS
 # =====================================================
-EMBEDDER = SentenceTransformer("all-MiniLM-L6-v2")
-
+EMBEDDER = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
 # =====================================================
 # DB SETUP
 # =====================================================
@@ -56,7 +55,7 @@ def init_db():
             content TEXT,
             source TEXT,
             page_url TEXT,
-            embedding VECTOR(384),
+            embedding VECTOR(768),
             hash TEXT UNIQUE
         );
     """)
@@ -81,7 +80,12 @@ def page_hash(text):
 def chunk_hash(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-def chunk_text(text):
+def chunk_text(text, size=200, overlap=50):
     words = text.split()
-    for i in range(0, len(words), CHUNK_SIZE):
-        yield " ".join(words[i:i + CHUNK_SIZE])     
+    step = size - overlap
+    for i in range(0, len(words), step):
+        yield " ".join(words[i:i + size])
+
+def extract_keywords(question):
+    words = re.findall(r'\b[a-zA-Z]{3,}\b', question.lower())
+    return list(set(words))    

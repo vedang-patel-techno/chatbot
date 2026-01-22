@@ -2,118 +2,99 @@
 # IMPORTS
 # =====================================================
 import time
-from urllib.parse import urljoin, urlparse
+import hashlib
+from urllib.parse import urljoin, urlparse, urlunparse
 
 from bs4 import BeautifulSoup
+
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
 from webdriver_manager.chrome import ChromeDriverManager
 
 from rag_shared import (
+    init_db,
     get_db_connection,
     normalize_url,
     clean_text,
     page_hash,
-    chunk_hash,
     chunk_text,
-    EMBEDDER,
-    init_db
+    chunk_hash,
+    EMBEDDER
 )
 
 # =====================================================
-# CONFIG
+# CONFIGURATION
 # =====================================================
-MAX_DEPTH = 8
-MAX_PAGES = 80
-SELENIUM_WAIT = 3  # seconds
+MAX_DEPTH = 20              # ⬆ increased
+MAX_PAGES = 2000            # ⬆ increased
+SELENIUM_WAIT = 1.0         # ⬆ increased
 
 # =====================================================
-# GLOBALS
+# GLOBAL STATE
 # =====================================================
-visited = set()
-documents = []
+visited_urls = set()
+documents_buffer = []
 
 # =====================================================
-# SELENIUM SETUP
+# SELENIUM DRIVER SETUP
 # =====================================================
 def get_driver():
     options = Options()
-    options.add_argument("--headless")
+    options.add_argument("--headless=new")
     options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--window-size=1920,1080")
+    options.add_argument("--disable-blink-features=AutomationControlled")
 
     service = Service(ChromeDriverManager().install())
+
     driver = webdriver.Chrome(service=service, options=options)
+    driver.set_page_load_timeout(30)
     return driver
 
-
-def fetch_rendered_html(driver, url):
+# =====================================================
+# HTML FETCHING
+# =====================================================
+def fetch_html(driver, url):
     try:
         driver.get(url)
-        time.sleep(SELENIUM_WAIT)  # wait for JS to load
-        return driver.page_source
+
+        # ✅ Wait for DOM links (JS-heavy sites)
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.TAG_NAME, "a"))
+        )
+
+        time.sleep(SELENIUM_WAIT)
+        html = driver.page_source
+
+        # Debug: detect bot blocking
+        if len(html) < 1000:
+            print(f"⚠️ Possible block / empty page: {url}")
+
+        return html
+
     except Exception as e:
-        print(f"❌ Failed to load {url}: {e}")
+        print(f"❌ Failed to load URL: {url} | Error: {e}")
         return None
 
 # =====================================================
-# CRAWLER
+# DATABASE HELPERS
 # =====================================================
-def crawl(url, depth=0, base_domain=None, driver=None):
-    if depth > MAX_DEPTH or len(visited) >= MAX_PAGES:
-        return
-
-    normalized = normalize_url(url)
-
-    if normalized in visited:
-        return
-
-    visited.add(normalized)
-    print(f"🌐 Crawling ({depth}): {normalized}")
-
-    html = fetch_rendered_html(driver, normalized)
-    if not html:
-        return
-
-    soup = BeautifulSoup(html, "html.parser")
-
-    # Remove noise (keeping header and footer as they may contain essential info)
-    for tag in soup(["script", "style", "noscript", "svg"]):
-        tag.decompose()
-
-    text = clean_text(" ".join(soup.get_text().split()))
-    if len(text) > 100:
-        documents.append({
-            "url": normalized,
-            "text": text
-        })
-
-    # Follow internal links
-    for link in soup.find_all("a", href=True):
-        href = link["href"]
-
-        if href.startswith(("#", "mailto:", "tel:")):
-            continue
-
-        next_url = normalize_url(urljoin(normalized, href))
-
-        if urlparse(next_url).netloc != base_domain:
-            continue
-
-        crawl(next_url, depth + 1, base_domain, driver)
-
-    time.sleep(0.5)
-
-# =====================================================
-# DB HELPERS
-# =====================================================
-def get_page_hash(url):
+def get_existing_page_hash(url):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
-        "SELECT content_hash FROM pages WHERE url = %s AND is_active = TRUE",
+        """
+        SELECT content_hash
+        FROM pages
+        WHERE url = %s
+          AND is_active = TRUE
+        """,
         (url,)
     )
     row = cur.fetchone()
@@ -122,30 +103,38 @@ def get_page_hash(url):
     return row[0] if row else None
 
 
-def upsert_page(url, content_hash, tenant_id):
+def get_existing_document_hashes(url):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("""
+    cur.execute(
+        """
+        SELECT hash
+        FROM documents
+        WHERE page_url = %s
+        """,
+        (url,)
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return {row[0] for row in rows}
+
+
+def upsert_page_record(url, content_hash, tenant_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
         INSERT INTO pages (url, content_hash, is_active, tenant_id)
         VALUES (%s, %s, TRUE, %s)
         ON CONFLICT (url)
         DO UPDATE SET
             content_hash = EXCLUDED.content_hash,
-            last_indexed = NOW(),
             is_active = TRUE,
-            tenant_id = EXCLUDED.tenant_id
-    """, (url, content_hash, tenant_id))
-    conn.commit()
-    cur.close()
-    conn.close()
-
-
-def delete_page_chunks(url):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "DELETE FROM documents WHERE page_url = %s",
-        (url,)
+            tenant_id = EXCLUDED.tenant_id,
+            last_indexed = NOW()
+        """,
+        (url, content_hash, tenant_id)
     )
     conn.commit()
     cur.close()
@@ -158,98 +147,205 @@ def deactivate_removed_pages(active_urls, tenant_id):
 
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("""
+    cur.execute(
+        """
         UPDATE pages
         SET is_active = FALSE
         WHERE tenant_id = %s
           AND url NOT IN %s
-    """, (tenant_id, tuple(active_urls)))
+        """,
+        (tenant_id, tuple(active_urls))
+    )
     conn.commit()
     cur.close()
     conn.close()
 
 # =====================================================
-# VECTOR DB SYNC
+# URL NORMALIZATION (SAFE FOR PAGINATION)
 # =====================================================
-def sync_vector_db(docs, tenant_id):
+def normalize_for_crawling(url):
+    """
+    Keeps query params to avoid killing pagination
+    """
+    parsed = urlparse(url)
+    return urlunparse((
+        parsed.scheme,
+        parsed.netloc.lower(),
+        parsed.path.rstrip("/"),
+        parsed.params,
+        parsed.query,   # ✅ KEEP query params
+        ""
+    ))
+
+# =====================================================
+# CORE CRAWLER LOGIC
+# =====================================================
+def crawl_page(driver, current_url, depth, base_domain):
+    if depth > MAX_DEPTH:
+        return
+
+    if len(visited_urls) >= MAX_PAGES:
+        return
+
+    normalized_url = normalize_for_crawling(current_url)
+
+    if normalized_url in visited_urls:
+        return
+
+    visited_urls.add(normalized_url)
+
+    print(f"🌐 Crawling ({len(visited_urls)}/{MAX_PAGES}) depth={depth}: {normalized_url}")
+
+    html = fetch_html(driver, normalized_url)
+    if not html:
+        return
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    # -------------------------------------------------
+    # Remove noise
+    # -------------------------------------------------
+    for tag in soup([
+        "script", "style", "noscript"]):
+        tag.decompose()
+
+    # -------------------------------------------------
+    # Extract visible text
+    # -------------------------------------------------
+    raw_text = soup.get_text(separator=" ")
+    cleaned_text = clean_text(" ".join(raw_text.split()))
+
+    print(f"📝 Text length: {len(cleaned_text)}")
+
+    # ✅ Lower threshold so pages aren’t silently dropped
+    if len(cleaned_text) > 100:
+        documents_buffer.append({
+            "url": normalized_url,
+            "text": cleaned_text
+        })
+
+    # -------------------------------------------------
+    # Follow internal links (with subdomain support)
+    # -------------------------------------------------
+    for link in soup.find_all("a", href=True):
+        href = link.get("href")
+
+        if not href:
+            continue
+
+        if href.startswith(("mailto:", "tel:", "#", "javascript:")):
+            continue
+
+        next_url = normalize_for_crawling(
+            urljoin(normalized_url, href)
+        )
+
+        parsed = urlparse(next_url)
+
+        # ✅ Allow subdomains
+        if not parsed.netloc.endswith(base_domain):
+            continue
+
+        crawl_page(
+            driver=driver,
+            current_url=next_url,
+            depth=depth + 1,
+            base_domain=base_domain
+        )
+
+# =====================================================
+# VECTOR DATABASE SYNC
+# =====================================================
+def sync_vector_database(docs, tenant_id):
     conn = get_db_connection()
     cur = conn.cursor()
 
     active_pages = set()
-    print("\n📦 Syncing embeddings...\n")
+    print("\n📦 Syncing vector database...\n")
 
     for doc in docs:
-        url = doc["url"]
-        text = doc["text"]
-        active_pages.add(url)
+        page_url = doc["url"]
+        page_text = doc["text"]
+        active_pages.add(page_url)
 
-        new_hash = page_hash(text)
-        old_hash = get_page_hash(url)
+        new_page_hash = page_hash(page_text)
+        old_page_hash = get_existing_page_hash(page_url)
 
-        if old_hash == new_hash:
-            print(f"⏭ Skipped unchanged: {url}")
+        if old_page_hash == new_page_hash:
+            print(f"⏭ Unchanged: {page_url}")
             continue
 
-        print(f"🔄 Updating page: {url}")
-        delete_page_chunks(url)
+        existing_chunk_hashes = get_existing_document_hashes(page_url)
+        chunks = [c for c in chunk_text(page_text) if len(c) > 50]
 
-        chunks = list(chunk_text(text))
+        if not chunks:
+            continue
+
         embeddings = EMBEDDER.encode(chunks)
 
-        for chunk, emb in zip(chunks, embeddings):
-            cur.execute("""
-                INSERT INTO documents (content, source, page_url, embedding, hash)
+        inserted = skipped = 0
+
+        for chunk, embedding in zip(chunks, embeddings):
+            h = chunk_hash(chunk)
+            if h in existing_chunk_hashes:
+                skipped += 1
+                continue
+
+            cur.execute(
+                """
+                INSERT INTO documents
+                (content, source, page_url, embedding, hash)
                 VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (hash) DO NOTHING
-            """, (
-                chunk,
-                url,
-                url,
-                emb.tolist(),
-                chunk_hash(chunk)
-            ))
+                """,
+                (chunk, page_url, page_url, embedding.tolist(), h)
+            )
+            inserted += 1
 
-        upsert_page(url, new_hash, tenant_id)
+        upsert_page_record(page_url, new_page_hash, tenant_id)
+
+        print(f"🔄 {page_url} | new: {inserted}, reused: {skipped}")
 
     conn.commit()
     cur.close()
     conn.close()
 
     deactivate_removed_pages(active_pages, tenant_id)
-    print("\n✅ Vector DB synced\n")
+    print("\n✅ Vector database sync complete\n")
 
 # =====================================================
 # CONTROLLER
 # =====================================================
-def ingest_website(url, tenant_id):
+def ingest_website(start_url, tenant_id):
     init_db()
-    visited.clear()
-    documents.clear()
+    visited_urls.clear()
+    documents_buffer.clear()
 
-    start_url = normalize_url(url)
-    domain = urlparse(start_url).netloc
+    normalized_start = normalize_for_crawling(start_url)
+    base_domain = urlparse(normalized_start).netloc.split(":")[0]
 
     driver = get_driver()
     try:
-        crawl(start_url, base_domain=domain, driver=driver)
+        crawl_page(driver, normalized_start, 0, base_domain)
     finally:
         driver.quit()
 
-    if not documents:
-        raise RuntimeError("❌ No content scraped")
+    if not documents_buffer:
+        print("❌ No content collected")
+        return
 
-    sync_vector_db(documents, tenant_id)
+    sync_vector_database(documents_buffer, tenant_id)
 
 # =====================================================
-# MAIN
+# MAIN LOOP
 # =====================================================
 if __name__ == "__main__":
     init_db()
-    print("\n🚀 SELENIUM CRAWLER READY\n")
+    print("\n🚀 SELENIUM WEBSITE CRAWLER READY\n")
 
     while True:
-        site = input("🌐 Website URL (or exit): ").strip()
-        if site.lower() == "exit":
+        website = input("🌐 Website URL (or exit): ").strip()
+        if website.lower() == "exit":
             break
 
         tenant_id = input("🔑 Tenant ID: ").strip()
@@ -257,4 +353,4 @@ if __name__ == "__main__":
             print("❌ Tenant ID required")
             continue
 
-        ingest_website(site, tenant_id)
+        ingest_website(website, tenant_id)
