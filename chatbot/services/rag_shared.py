@@ -37,38 +37,6 @@ EMBEDDER = SentenceTransformer(
 def get_db_connection():
     return psycopg2.connect(**DB_CONFIG)
 
-def init_db():
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS pages (
-            id SERIAL PRIMARY KEY,
-            url TEXT UNIQUE,
-            tenant_id TEXT,
-            content_hash TEXT,
-            is_active BOOLEAN DEFAULT TRUE,
-            last_indexed TIMESTAMP DEFAULT NOW()
-        );
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS documents (
-            id SERIAL PRIMARY KEY,
-            content TEXT,
-            source TEXT,
-            page_url TEXT,
-            embedding VECTOR(768),
-            hash TEXT UNIQUE
-        );
-    """)
-
-    conn.commit()
-    cur.close()
-    conn.close()
-
 # =====================================================
 # UTILS
 # =====================================================

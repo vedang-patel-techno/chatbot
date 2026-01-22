@@ -8,8 +8,7 @@ from .rag_shared import (
     page_hash,
     chunk_hash,
     chunk_text,
-    EMBEDDER,
-    init_db
+    EMBEDDER
 )
 
 # =====================================================
@@ -148,8 +147,6 @@ def sync_pdf_to_db(pdf_path, tenant_id):
 # =====================================================
 def ingest_pdf(pdf_path, tenant_id):
     """Main function to ingest a PDF file."""
-    init_db()
-    
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"❌ PDF file not found: {pdf_path}")
     

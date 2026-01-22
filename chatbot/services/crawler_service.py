@@ -14,7 +14,6 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 from .rag_shared import (
-    init_db,
     get_db_connection,
     normalize_url,
     clean_text,
@@ -29,7 +28,7 @@ from .rag_shared import (
 # =====================================================
 MAX_DEPTH = 20              # ⬆ increased
 MAX_PAGES = 2000            # ⬆ increased
-SELENIUM_WAIT = 1.0         # ⬆ increased
+SELENIUM_WAIT = 0.2         # ⬆ increased
 
 # =====================================================
 # GLOBAL STATE
@@ -317,7 +316,6 @@ def sync_vector_database(docs, tenant_id):
 # CONTROLLER
 # =====================================================
 def ingest_website(start_url, tenant_id):
-    init_db()
     visited_urls.clear()
     documents_buffer.clear()
 
