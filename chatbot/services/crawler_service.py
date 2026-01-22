@@ -1,6 +1,3 @@
-# =====================================================
-# IMPORTS
-# =====================================================
 import time
 import hashlib
 from urllib.parse import urljoin, urlparse, urlunparse
@@ -16,7 +13,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from webdriver_manager.chrome import ChromeDriverManager
 
-from rag_shared import (
+from .rag_shared import (
     init_db,
     get_db_connection,
     normalize_url,
@@ -217,7 +214,7 @@ def crawl_page(driver, current_url, depth, base_domain):
 
     print(f"📝 Text length: {len(cleaned_text)}")
 
-    # ✅ Lower threshold so pages aren’t silently dropped
+    # ✅ Lower threshold so pages aren't silently dropped
     if len(cleaned_text) > 100:
         documents_buffer.append({
             "url": normalized_url,
@@ -339,21 +336,3 @@ def ingest_website(start_url, tenant_id):
 
     sync_vector_database(documents_buffer, tenant_id)
 
-# =====================================================
-# MAIN LOOP
-# =====================================================
-if __name__ == "__main__":
-    init_db()
-    print("\n🚀 SELENIUM WEBSITE CRAWLER READY\n")
-
-    while True:
-        website = input("🌐 Website URL (or exit): ").strip()
-        if website.lower() == "exit":
-            break
-
-        tenant_id = input("🔑 Tenant ID: ").strip()
-        if not tenant_id:
-            print("❌ Tenant ID required")
-            continue
-
-        ingest_website(website, tenant_id)

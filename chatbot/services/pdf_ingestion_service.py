@@ -1,11 +1,8 @@
-# =====================================================
-# IMPORTS
-# =====================================================
 import os
 from pathlib import Path
 import PyPDF2
 
-from rag_shared import (
+from .rag_shared import (
     get_db_connection,
     clean_text,
     page_hash,
@@ -161,25 +158,3 @@ def ingest_pdf(pdf_path, tenant_id):
     
     sync_pdf_to_db(pdf_path, tenant_id)
 
-
-# =====================================================
-# MAIN
-# =====================================================
-if __name__ == "__main__":
-    init_db()
-    print("\n📚 PDF INGESTION READY\n")
-    
-    while True:
-        pdf_file = input("📄 PDF file path (or exit): ").strip()
-        if pdf_file.lower() == "exit":
-            break
-        
-        tenant_id = input("🔑 Tenant ID: ").strip()
-        if not tenant_id:
-            print("❌ Tenant ID required")
-            continue
-        
-        try:
-            ingest_pdf(pdf_file, tenant_id)
-        except Exception as e:
-            print(f"❌ Error: {e}\n")

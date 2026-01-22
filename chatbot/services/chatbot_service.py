@@ -3,7 +3,7 @@ import difflib
 import re
 from collections import Counter
 from groq import Groq
-from rag_shared import (
+from .rag_shared import (
     get_db_connection, EMBEDDER
 )
 
@@ -121,6 +121,7 @@ def apply_fuzzy_correction(question, tenant_id):
         corrected_question = re.sub(pattern, corrected, corrected_question, flags=re.IGNORECASE)
     
     return corrected_question, corrections
+
 SYNONYM_GROUPS = {
     # Contact information
     "phone": ["phone", "telephone", "mobile", "contact number", "phone number", "cell", "call"],
@@ -318,17 +319,9 @@ If the answer cannot be found or reasonably inferred, say:
     return res.choices[0].message.content
 
 
+def get_chatbot_response(question, tenant_id):
+    """Main function to get chatbot response."""
+    context = retrieve_context(question, tenant_id)
+    answer = ask_llm(question, context)
+    return answer
 
-if __name__ == "__main__":
-    print("\n💬 CHATBOT READY\n")
-
-    tenant_id = input("\n🔑 Enter Tenant ID: ").strip()
-    
-    while True:
-        q = input("\n❓ Ask (or exit): ").strip()
-        if q.lower() == "exit":
-            break
-
-        ctx = retrieve_context(q, tenant_id)
-        ans = ask_llm(q, ctx)
-        print("\n--- ANSWER ---\n", ans, "\n")
