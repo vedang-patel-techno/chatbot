@@ -25,7 +25,10 @@ DB_CONFIG = {
 # =====================================================
 # GLOBALS
 # =====================================================
-EMBEDDER = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
+EMBEDDER = SentenceTransformer(
+    "nomic-ai/nomic-embed-text-v1",
+    trust_remote_code=True
+)
 # =====================================================
 # DB SETUP
 # =====================================================

@@ -195,16 +195,18 @@ def retrieve_context(question, tenant_id):
     expanded_question = expand_query(corrected_question)
 
     # -------------------------------------------------
-    # 3️⃣ Query expansion for embedding
+    # 3️⃣ Query embedding (FIXED)
     # -------------------------------------------------
-    expanded_for_embedding = f"""
-    Question: {expanded_question}
-    Find related information, descriptions, explanations,
-    people, roles, services, contact details, FAQs.
-    """
+    query_embedding = EMBEDDER.encode(
+        ["search_query: " + expanded_question],
+        normalize_embeddings=True
+    )[0]
 
-    query_embedding = EMBEDDER.encode(expanded_for_embedding).tolist()
+    query_embedding = query_embedding.tolist()  # pgvector fix
 
+    # -------------------------------------------------
+    # DB connection (MUST come before execute)
+    # -------------------------------------------------
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -224,10 +226,10 @@ def retrieve_context(question, tenant_id):
     vector_rows = cur.fetchall()
 
     # -------------------------------------------------
-    # 5️⃣ Keyword fallback search (CRITICAL)
+    # 5️⃣ Keyword fallback search
     # -------------------------------------------------
     keywords = re.findall(r'\b[a-zA-Z]{3,}\b', corrected_question.lower())
-    keywords = list(set(keywords))[:4]  # limit to avoid noise
+    keywords = list(set(keywords))[:4]
 
     keyword_rows = []
 
@@ -248,7 +250,7 @@ def retrieve_context(question, tenant_id):
     conn.close()
 
     # -------------------------------------------------
-    # 6️⃣ Merge + deduplicate results
+    # 6️⃣ Merge + deduplicate
     # -------------------------------------------------
     combined = vector_rows + keyword_rows
 
@@ -262,22 +264,20 @@ def retrieve_context(question, tenant_id):
             unique_rows.append((text, src))
 
     # -------------------------------------------------
-    # 7️⃣ Build final context (size-limited)
+    # 7️⃣ Build final context
     # -------------------------------------------------
     context = []
     total_chars = 0
 
     for text, src in unique_rows:
         entry = f"[{src}] {text}"
-
         if total_chars + len(entry) > MAX_CONTEXT_CHARS:
             break
-
         context.append(entry)
         total_chars += len(entry)
 
     # -------------------------------------------------
-    # 8️⃣ Debug (OPTIONAL — keep while testing)
+    # 8️⃣ Debug
     # -------------------------------------------------
     print("\n🔍 RETRIEVAL DEBUG:")
     for i, c in enumerate(context):
@@ -285,6 +285,9 @@ def retrieve_context(question, tenant_id):
 
     return context
 
+# =====================================================
+# MAIN
+# =====================================================
 def ask_llm(question, context_chunks):
     if not context_chunks:
         return "I don't know based on the website."
@@ -314,9 +317,8 @@ If the answer cannot be found or reasonably inferred, say:
 
     return res.choices[0].message.content
 
-# =====================================================
-# MAIN
-# =====================================================
+
+
 if __name__ == "__main__":
     print("\n💬 CHATBOT READY\n")
 

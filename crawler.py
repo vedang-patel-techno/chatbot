@@ -281,7 +281,10 @@ def sync_vector_database(docs, tenant_id):
         if not chunks:
             continue
 
-        embeddings = EMBEDDER.encode(chunks)
+        embeddings = EMBEDDER.encode(
+            ["search_document: " + c for c in chunks],
+                normalize_embeddings=True
+            )
 
         inserted = skipped = 0
 
